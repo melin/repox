@@ -37,20 +37,27 @@ object GetWorker {
 
   case object Cleanup
 
-  case object LanternGiveup // same effect as ReceiveTimeout
+  case object LanternGiveup
+
+  // same effect as ReceiveTimeout
 
   case class HeartBeat(length: Int)
 
   case object WorkerDead
 
   case class AsyncHandlerThrows(t: Throwable)
+
 }
 
 class GetWorker(upstream: Repo, uri: String, requestHeaders: FluentCaseInsensitiveStringsMap) extends Actor with Stash with ActorLogging {
+
   import com.gtan.repox.GetWorker._
 
   val upstreamUrl = upstream.base + uri
-  val handler = new GetAsyncHandler(uri, upstream, context.self, context.parent)
+
+  def createHandler = new GetAsyncHandler(uri, upstream, context.self, context.parent)
+
+  var handler: GetAsyncHandler = _
 
   import scala.concurrent.duration._
 
@@ -60,15 +67,27 @@ class GetWorker(upstream: Repo, uri: String, requestHeaders: FluentCaseInsensiti
 
   val (connector, client) = Repox.clientOf(upstream)
 
-  val future = client.prepareGet(upstreamUrl)
-    .setHeaders(requestHeaders)
-    .execute(handler)
+  var supportRange = false
+
+  def start(): Unit = {
+    handler = createHandler
+    if (supportRange) {
+      import collection.JavaConverters._
+      log.debug(s"Resume download after position: $downloaded")
+      requestHeaders.put("Range", List(s"$downloaded-").asJava)
+    }
+    client.prepareGet(upstreamUrl)
+      .setHeaders(requestHeaders)
+      .execute(handler)
+  }
+
+  start()
 
   override def receive = {
     case AsyncHandlerThrows(t) =>
-        t.printStackTrace()
-        context.parent ! Failed(t)
-        self ! PoisonPill
+      t.printStackTrace()
+      context.parent ! Failed(t)
+      self ! PoisonPill
 
     case Cleanup =>
       handler.cancel()
@@ -77,15 +96,20 @@ class GetWorker(upstream: Repo, uri: String, requestHeaders: FluentCaseInsensiti
       handler.cancel()
 
     case ReceiveTimeout | LanternGiveup =>
-      context.parent ! Failed(new RuntimeException("Chosen worker timeout or lantern giveup"))
-      handler.cancel()
-      self ! PoisonPill
+      if (supportRange) {
+        // resume
+        start()
+      } else {
+        context.parent ! Failed(new RuntimeException("Chosen worker timeout or lantern giveup"))
+        handler.cancel()
+        self ! PoisonPill
+      }
 
     case HeartBeat(length) =>
       downloaded += length
-      if(contentLength != -1) {
+      if (contentLength != -1) {
         val newPercentage = downloaded * 100.0 / contentLength
-        if(newPercentage - percentage > 10.0 || downloaded == contentLength) {
+        if (newPercentage - percentage > 10.0 || downloaded == contentLength) {
           log.debug(f"downloaded $downloaded%s bytes. $newPercentage%.2f %%")
           percentage = newPercentage
         }
@@ -95,11 +119,12 @@ class GetWorker(upstream: Repo, uri: String, requestHeaders: FluentCaseInsensiti
 
     case HeadersGot(headers) =>
       val contentLengthHeader = headers.getHeaders.getFirstValue("Content-Length")
-      if(contentLengthHeader != null) {
+      if (contentLengthHeader != null) {
         log.debug(s"contentLength=$contentLengthHeader")
         contentLength = contentLengthHeader.toLong
       }
-      downloaded = 0
+      supportRange = Option(headers.getHeaders.getFirstValue("Accept-Ranges")).map(_.toLowerCase) == Some("bytes")
+
       percentage = 0.0
       context.setReceiveTimeout(connector.connectionIdleTimeout - 1.second)
   }

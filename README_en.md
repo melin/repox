@@ -5,7 +5,7 @@ The main motivation of Repox is to speedup sbt dependency resolving. But it can 
 
 Currently Repox only do proxying, there is no support for artifact publishing.
 
-To get your hands dirty immediately, go [Getting Start](https://github.com/Centaur/repox/wiki/Getting-Started)
+To get your hands dirty immediately, go [Getting Started](https://github.com/Centaur/repox/wiki/Getting-Started)
 
 ### Why Repox
 

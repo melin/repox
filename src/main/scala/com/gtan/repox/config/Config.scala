@@ -55,7 +55,7 @@ object Config extends LazyLogging with ConfigFormats {
     )
   )
   val defaultRepos: IndexedSeq[Repo] = IndexedSeq(
-    Repo(Some(1), "koala", "http://nexus.openkoala.org/nexus/content/groups/Koala-release",
+    Repo(Some(1), "koala", "http://nexus.openkoala.org/content/groups/Koala-release",
       priority = 1, getOnly = true, maven = true),
     Repo(Some(3), "sonatype", "http://oss.sonatype.org/content/repositories/releases", priority = 2),
     Repo(Some(4), "typesafe", "http://repo.typesafe.com/typesafe/releases", priority = 2),
